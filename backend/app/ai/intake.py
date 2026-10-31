@@ -70,6 +70,9 @@ def _content_block(data: bytes, media_type: str) -> dict:
 def extract(db: Session, client: MessagesClient, data: bytes, media_type: str) -> dict[str, Any]:
     if len(data) > MAX_BYTES:
         raise StockError("file is larger than 15 MB")
+    if getattr(client, "is_demo", False):  # demo mode cannot read a file; build a sample note from the open PO
+        from .demo import sample_extraction
+        return sample_extraction(db)
     catalogue = "\n".join(f"{p.sku} | {p.name}" for p in db.scalars(select(Product).where(Product.active.is_(True))))
     response = client.create(
         model=MODEL,

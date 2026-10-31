@@ -102,7 +102,15 @@ backend tests and a type-checked frontend build on every push.
 
 On a phone: ![Home](docs/screenshots/11-home-mobile.png)
 
-The planner and intake screenshots were captured with a scripted stand-in for
-the model (no API key in the build environment): the tool calls, the data and the
-PO matching are real; the wording of the answers and the extracted note are
-scripted.
+### Demo mode (no API key)
+
+Without `ANTHROPIC_API_KEY` the planner and the delivery-note intake still work
+in a clearly labelled demo mode. A rule-based stand-in replaces the model, and
+everything below it is real: the same tools read the live database, proposals
+land in the same sign-off queue, and approval creates the same draft documents.
+The intent is picked by keyword (English and Hebrew) and the wording is
+templated; the intake builds a sample note from an open purchase order instead
+of reading a file. Set `ANTHROPIC_API_KEY` and Claude takes over with no other
+change. Set `STOCKPILOT_AI_DEMO=0` to turn demo mode off.
+
+The planner and intake screenshots above were captured in demo mode.

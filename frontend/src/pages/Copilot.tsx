@@ -9,7 +9,7 @@ type Proposal = {
 };
 type Step = { tool: string; input: Record<string, unknown>; ok: boolean };
 type Msg = { role: "user" | "assistant"; text: string; steps?: Step[]; proposals?: Proposal[] };
-type AIStatus = { enabled: boolean; model: string; effort?: string; reason?: string };
+type AIStatus = { enabled: boolean; demo?: boolean; model: string; effort?: string; reason?: string };
 
 const SUGGESTIONS = [
   "What needs my attention today?",
@@ -88,6 +88,7 @@ export default function Copilot() {
         {can("manager") && <button className="primary" disabled={thinking || !st?.enabled} onClick={() => { reset(); runPlanner(); }}>Run the morning review</button>}
       </>}>
       {st && !st.enabled && <div className="error" style={{ marginBottom: 14 }}>The planner is offline: {st.reason}</div>}
+      {st?.demo && <div className="note" role="status"><b>Demo mode.</b> Answers are rule-based and built from your live stock data, with no language model. Proposals still wait for a manager's sign-off. Set ANTHROPIC_API_KEY on the server to use Claude.</div>}
       <div className="grid-copilot">
         <Card>
           <div className="chat" aria-live="polite">

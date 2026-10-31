@@ -242,7 +242,12 @@ def _propose(db: Session, kind: str, args: dict, conversation_id: int | None) ->
             raise StockError("max_qty must be >= min_qty")
         if db.get(Product, args["product_id"]) is None or db.get(Site, args["site_id"]) is None:
             raise StockError("unknown product or site")
-    prop = AIProposal(kind=kind, payload=json.dumps(payload), rationale=args.get("rationale", ""), conversation_id=conversation_id)
+    # Asking twice must not queue the same change twice: reuse an identical pending proposal.
+    dumped = json.dumps(payload)
+    same = db.scalar(select(AIProposal).where(AIProposal.kind == kind, AIProposal.status == "pending", AIProposal.payload == dumped))
+    if same is not None:
+        return {"proposal_id": same.id, "status": "pending_human_approval", "note": "An identical proposal is already waiting for approval."}
+    prop = AIProposal(kind=kind, payload=dumped, rationale=args.get("rationale", ""), conversation_id=conversation_id)
     db.add(prop)
     db.flush()
     return {"proposal_id": prop.id, "status": "pending_human_approval", "note": "Shown to the user with Approve/Reject buttons. Do not claim it is done."}

@@ -97,6 +97,7 @@ def test_refusal_and_missing_key(client, world, monkeypatch):
     app.dependency_overrides.pop(ai_router.get_client)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.setenv("STOCKPILOT_AI_DEMO", "0")
     assert client.post("/api/ai/chat", headers=mgr, json={"message": "x"}).status_code == 503
     assert client.get("/api/ai/status", headers=mgr).json()["enabled"] is False
 
@@ -155,3 +156,25 @@ def test_intake_warns_when_the_note_is_from_another_supplier(client, world):
     r = client.post("/api/ai/intake/receipt", headers=mgr, data={"po_id": str(po["id"])},
                     files={"file": ("note.pdf", b"%PDF-1.4 fake", "application/pdf")}).json()
     assert any("Document is from Completely Different Trading" in w for w in r["warnings"])
+
+
+def test_demo_mode_without_a_key(client, world, monkeypatch):
+    """No key: the rule-based demo answers from live data and proposals still need sign-off."""
+    mgr = client.headers_for(Role.manager)
+    from app.main import app
+    app.dependency_overrides.pop(ai_router.get_client, None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("STOCKPILOT_AI_DEMO", raising=False)
+    st = client.get("/api/ai/status", headers=mgr).json()
+    assert st["enabled"] is True and st["demo"] is True
+    r = client.post("/api/ai/planner/run", headers=mgr)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "Demo mode" in body["text"] and body["steps"]
+    for p in body["proposals"]:
+        assert p["status"] == "pending"
+    help_ = client.post("/api/ai/chat", headers=mgr, json={"message": "tell me a joke"}).json()
+    assert "demo mode" in help_["text"] and not help_["proposals"]
+    he = client.post("/api/ai/chat", headers=mgr, json={"message": "מה מצב המלאי בסניף תל אביב"}).json()
+    assert he["steps"]
