@@ -140,6 +140,14 @@ def cancel_so(oid: int, db: Session = Depends(get_db), _=Depends(require(Role.cl
     return s.so_out(so)
 
 
+@router.post("/pos/checkout", status_code=201)
+def pos_checkout(body: s.POSCheckoutIn, db: Session = Depends(get_db), user: User = Depends(require(Role.clerk))):
+    """Store counter sale: order, reservation and shipment in one transaction."""
+    so = d.pos_checkout(db, body.site_id, [x.model_dump() for x in body.lines], user, body.customer_id)
+    db.commit()
+    return s.so_out(so)
+
+
 # --------------------------------------------------------------------------- transfers
 
 @router.get("/transfers")

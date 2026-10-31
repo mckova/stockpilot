@@ -22,11 +22,11 @@ export default function Products() {
   return (
     <Page
       title="Products"
-      subtitle="Catalogue with stock across every site"
+      subtitle="The catalogue, with stock at every site."
       actions={can("manager") && <button className="primary" onClick={() => setCreating(true)}>+ New product</button>}
     >
       <form onSubmit={scan} className="toolbar">
-        <input placeholder="Search name or SKU, or scan a barcode and press Enter" value={q} onChange={(e) => setQ(e.target.value)} className="grow" />
+        <input aria-label="Search products" placeholder="Search name or SKU, or scan a barcode and press Enter" value={q} onChange={(e) => setQ(e.target.value)} className="grow" />
       </form>
       {!data ? <Loading error={error} /> : (
         <div className="card flush">
@@ -40,7 +40,7 @@ export default function Products() {
                   <td className="mono">{p.sku}</td>
                   <td><Link to={`/products/${p.id}`} onClick={(e) => e.stopPropagation()}>{p.name}</Link></td>
                   <td>{p.category}</td>
-                  <td>{p.tracking === "lot" ? <span className="badge s-info">lot + expiry</span> : <span className="muted">—</span>}</td>
+                  <td>{p.tracking === "lot" ? <span className="badge s-info">lot + expiry</span> : <span className="faint">none</span>}</td>
                   <td className="r">{money2(p.avg_cost)}</td>
                   <td className="r">{money2(p.sale_price)}</td>
                   <td className="r">{num(p.on_hand ?? 0)}</td>
@@ -85,13 +85,13 @@ function NewProduct({ onClose, onDone }: { onClose: () => void; onDone: () => vo
         <div className="grid2">
           <label>Category
             <select value={f.category_id} onChange={set("category_id")}>
-              <option value="">—</option>
+              <option value="">Choose…</option>
               {data?.[0].map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </label>
           <label>Preferred supplier
             <select value={f.preferred_supplier_id} onChange={set("preferred_supplier_id")}>
-              <option value="">—</option>
+              <option value="">Choose…</option>
               {data?.[1].map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>

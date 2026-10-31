@@ -80,3 +80,37 @@ def test_count_flow_and_dashboard(client, world):
     dash = client.get("/api/dashboard", headers=mgr).json()
     assert dash["units_on_hand"] == 12 and dash["stock_value"] == 24
     assert len(dash["movement_30d"]) == 30
+
+
+def test_pos_checkout_sells_from_the_store_only(client, world):
+    from app.models import Transfer, TransferLine
+    from app.services import documents as d
+    mgr = client.headers_for(Role.manager)
+    po = client.post("/api/purchase-orders", headers=mgr, json={
+        "supplier_id": world["sup"].id, "site_id": world["wh"].id,
+        "lines": [{"product_id": world["mug"].id, "qty_ordered": 10, "unit_cost": 2}],
+    }).json()
+    client.post(f"/api/purchase-orders/{po['id']}/confirm", headers=mgr)
+    client.post(f"/api/purchase-orders/{po['id']}/receive", headers=mgr, json=[{"line_id": po["lines"][0]["id"], "qty": 10}])
+    clerk = client.headers_for(Role.clerk)
+    cart = {"site_id": world["st"].id, "lines": [{"product_id": world["mug"].id, "qty": 1}]}
+    r = client.post("/api/pos/checkout", headers=clerk, json=cart)
+    assert r.status_code == 409  # the store has none: warehouse stock is not sold at the counter
+
+    db = world["db"]
+    tr = Transfer(number="TR-1", from_site_id=world["wh"].id, to_site_id=world["st"].id)
+    tr.lines.append(TransferLine(product_id=world["mug"].id, product=world["mug"], qty=4))
+    db.add(tr)
+    db.flush()
+    d.dispatch_transfer(db, tr, None)
+    d.receive_transfer(db, tr, None)
+    db.commit()
+
+    cart["lines"] = [{"product_id": world["mug"].id, "qty": 1}, {"product_id": world["mug"].id, "qty": 2}]
+    sale = client.post("/api/pos/checkout", headers=clerk, json=cart).json()
+    assert sale["status"] == "shipped" and sale["customer"] == "Walk-in (Store)"
+    assert sale["lines"][0]["qty"] == 3 and sale["total"] == 30
+    dash = client.get(f"/api/dashboard?site_id={world['st'].id}", headers=mgr).json()
+    assert dash["units_on_hand"] == 1
+    network = client.get("/api/dashboard", headers=mgr).json()
+    assert network["units_on_hand"] == 7 and {s["name"] for s in network["sites"]} == {"Warehouse", "Store"}

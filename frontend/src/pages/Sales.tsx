@@ -13,7 +13,7 @@ export default function Sales() {
     run(async () => { await api.post(`/sales-orders/${so.id}/${verb}`); reload(); setOpen(so.id); }, `${so.number} ${done}`);
 
   return (
-    <Page title="Sales" subtitle="Orders are reserved (FEFO/FIFO) before they ship"
+    <Page title="Sales orders" subtitle="Reserved before they ship, oldest stock first."
       actions={<button className="primary" onClick={() => setCreating(true)}>+ New order</button>}>
       <div className="toolbar">
         {["", "draft", "reserved", "shipped", "cancelled"].map((s) => (
@@ -86,8 +86,8 @@ function NewSO({ onClose, onDone }: { onClose: () => void; onDone: () => void })
     <Modal title="New sales order" onClose={onClose}>
       <form className="form" onSubmit={submit}>
         <div className="grid2">
-          <label>Customer<select required value={customer} onChange={(e) => setCustomer(e.target.value)}><option value="">—</option>{custs.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-          <label>Ship from<select required value={site} onChange={(e) => setSite(e.target.value)}><option value="">—</option>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+          <label>Customer<select required value={customer} onChange={(e) => setCustomer(e.target.value)}><option value="">Choose…</option>{custs.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+          <label>Ship from<select required value={site} onChange={(e) => setSite(e.target.value)}><option value="">Choose…</option>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
         </div>
         <LineEditor lines={lines} setLines={setLines} products={products} priceLabel="Unit price" />
         <button className="primary" disabled={busy}>Create draft</button>

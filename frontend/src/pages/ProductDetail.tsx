@@ -1,3 +1,4 @@
+import { ArrowLeft } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, Avail, Insight, Move, Product, Quant, Site } from "../api";
@@ -24,14 +25,17 @@ export default function ProductDetail() {
 
   return (
     <Page title={p.name} subtitle={`${p.sku} · ${p.category ?? "uncategorised"} · ${p.tracking === "lot" ? "lot-tracked, FEFO" : "FIFO"}`}
-      actions={<Link to="/products" className="btn ghost">← Products</Link>}>
+      actions={<>
+        <Link to="/products" className="btn ghost"><ArrowLeft size={15} strokeWidth={1.75} aria-hidden="true" /> Products</Link>
+        <Link className="btn" to={`/copilot?q=${encodeURIComponent(`Analyse ${p.sku} (${p.name}): stock by site, demand trend, expiry risk and whether its reorder rules fit the forecast. Propose fixes if needed.`)}`}>Ask the planner about this item</Link>
+      </>}>
       <div className="kpis">
         <div className="kpi"><div className="muted small">Average cost</div><div className="kpi-v">{money2(p.avg_cost)}</div></div>
         <div className="kpi"><div className="muted small">Sale price</div><div className="kpi-v">{money2(p.sale_price)}</div><div className="muted small">margin {p.sale_price ? Math.round((1 - p.avg_cost / p.sale_price) * 100) : 0}%</div></div>
         {ins && <>
           <div className="kpi"><div className="muted small">Forecast demand / day</div><div className="kpi-v">{num(ins.avg_daily_demand)}</div><div className="muted small">σ {num(ins.demand_sigma)}</div></div>
           <div className="kpi"><div className="muted small">Reorder point</div><div className="kpi-v">{num(ins.reorder_point)}</div><div className="muted small">safety {num(ins.safety_stock)} · LT {ins.lead_time_days}d</div></div>
-          <div className="kpi"><div className="muted small">Days of cover</div><div className="kpi-v">{ins.days_of_cover ?? "∞"}</div><div className="muted small">ABC class {ins.abc}</div></div>
+          <div className="kpi"><div className="muted small">Days of cover</div><div className="kpi-v">{ins.days_of_cover == null ? "∞" : `${ins.days_of_cover} d`}</div><div className="muted small">ABC class {ins.abc}</div></div>
         </>}
       </div>
 
@@ -46,16 +50,16 @@ export default function ProductDetail() {
             </tbody>
           </table>
         </Card>
-        <Card title="Demand: last 28 days and 14-day forecast">
+        <Card title="How much sells a day, and what comes next?" extra={<span className="faint small">28 days back, 14 ahead</span>}>
           <div style={{ height: 200 }}>
             <ResponsiveContainer>
               <BarChart data={chart} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
-                <XAxis dataKey="d" fontSize={10} interval={3} stroke="var(--muted)" />
-                <YAxis fontSize={10} stroke="var(--muted)" />
-                <Tooltip />
-                <Bar dataKey="actual" fill="#64748b" name="Shipped" />
-                <Bar dataKey="forecast" fill="#2563eb" name="Forecast" />
+                <CartesianGrid stroke="var(--line-soft)" vertical={false} />
+                <XAxis dataKey="d" fontSize={10} interval={3} stroke="var(--ink-faint)" tickLine={false} fontFamily="IBM Plex Mono" />
+                <YAxis fontSize={10} stroke="var(--ink-faint)" tickLine={false} axisLine={false} fontFamily="IBM Plex Mono" />
+                <Tooltip cursor={{ fill: "rgb(23 25 27 / 0.04)" }} contentStyle={{ borderRadius: 3, border: "1px solid var(--line)", fontSize: 12 }} />
+                <Bar dataKey="actual" fill="#17191b" name="Shipped" />
+                <Bar dataKey="forecast" fill="#b9bdc1" name="Forecast" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -67,7 +71,7 @@ export default function ProductDetail() {
           <thead><tr><th>Location</th><th>Lot</th><th>Expiry</th><th className="r">Qty</th><th className="r">Reserved</th><th className="r">Value</th></tr></thead>
           <tbody>
             {p.quants.map((q) => (
-              <tr key={q.id}><td className="mono">{q.location}</td><td className="mono">{q.lot ?? "—"}</td><td>{q.expiry_date ?? ""}</td><td className="r">{num(q.quantity)}</td><td className="r">{q.reserved ? num(q.reserved) : ""}</td><td className="r">{money2(q.value)}</td></tr>
+              <tr key={q.id}><td className="mono">{q.location}</td><td className="mono">{q.lot ?? ""}</td><td>{q.expiry_date ?? ""}</td><td className="r">{num(q.quantity)}</td><td className="r">{q.reserved ? num(q.reserved) : ""}</td><td className="r">{money2(q.value)}</td></tr>
             ))}
           </tbody>
         </table>

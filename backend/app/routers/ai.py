@@ -1,12 +1,12 @@
 """AI copilot endpoints: chat with the agent, and the human approval queue."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..ai import agent
+from ..ai import agent, intake
 from ..ai.tools import approve_proposal, proposal_out
 from ..auth import current_user, require
 from ..db import get_db
@@ -98,3 +98,31 @@ def reject(pid: int, db: Session = Depends(get_db), user: User = Depends(require
     p.status, p.decided_by = "rejected", user.id
     db.commit()
     return proposal_out(db, p)
+
+
+@router.post("/planner/run")
+def run_planner(db: Session = Depends(get_db), user: User = Depends(require(Role.manager)), client=Depends(get_client)):
+    """Autonomous review: the agent audits the network and fills the approval queue."""
+    conv = AIConversation(user_id=user.id, title="AI planner run")
+    db.add(conv)
+    db.flush()
+    turn = agent.run_turn(db, conv, user, agent.PLANNER_TASK, client)
+    db.commit()
+    return {
+        "conversation_id": conv.id, "text": turn.text, "steps": turn.steps,
+        "proposals": [proposal_out(db, db.get(AIProposal, pid)) for pid in turn.proposal_ids],
+    }
+
+
+@router.post("/intake/receipt")
+async def intake_receipt(
+    file: UploadFile = File(...),
+    po_id: int | None = Form(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require(Role.clerk)),
+    client=Depends(get_client),
+):
+    """Read a delivery note / invoice and return a receipt pre-filled against the matching PO."""
+    data = await file.read()
+    extraction = intake.extract(db, client, data, file.content_type or "")
+    return {"extraction": extraction, **intake.match_to_po(db, extraction, po_id)}

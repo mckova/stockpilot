@@ -17,13 +17,13 @@ export default function Stock() {
   const total = useMemo(() => (data ?? []).reduce((s, q) => s + q.value, 0), [data]);
 
   return (
-    <Page title="Stock" subtitle="Every quant: product × location × lot">
+    <Page title="Stock on hand" subtitle="Each item, by location and lot.">
       <div className="toolbar">
-        <select value={siteId} onChange={(e) => { setSiteId(e.target.value); setLocId(""); }}>
+        <select aria-label="Site" value={siteId} onChange={(e) => { setSiteId(e.target.value); setLocId(""); }}>
           <option value="">All sites</option>
           {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <select value={locId} onChange={(e) => setLocId(e.target.value)}>
+        <select aria-label="Location" value={locId} onChange={(e) => setLocId(e.target.value)}>
           <option value="">All locations</option>
           {internal.map((l) => <option key={l.id} value={l.id}>{l.full_code} · {l.name}</option>)}
         </select>
@@ -37,7 +37,7 @@ export default function Stock() {
             <tbody>
               {data.map((q) => (
                 <tr key={q.id}>
-                  <td><Link to={`/products/${q.product_id}`}>{q.product}</Link> <span className="muted mono small">{q.sku}</span></td>
+                  <td><Link to={`/products/${q.product_id}`}>{q.product}</Link><span className="muted mono small block">{q.sku}</span></td>
                   <td className="mono">{q.location}</td>
                   <td className="mono">{q.lot ?? ""}</td>
                   <td>{q.expiry_date ?? ""}</td>

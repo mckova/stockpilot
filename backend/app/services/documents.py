@@ -268,3 +268,45 @@ def apply_count(db: Session, count: CycleCount, user: User | None) -> list[Stock
             raise StockError(f"{line.product.sku}: cannot post a loss of {-diff}, stock is reserved")
     count.status = CountStatus.applied
     return moves
+
+
+# --------------------------------------------------------------------------- store point of sale
+
+def pos_checkout(db: Session, site_id: int, lines: list[dict], user: User | None, customer_id: int | None = None) -> SalesOrder:
+    """Sell at a store counter in one step: create the order, reserve, ship.
+
+    lines: [{product_id, qty, unit_price?}]. Uses the store's walk-in customer
+    when none is given. All-or-nothing: a shortage on any line sells nothing.
+    """
+    from ..models import Partner, Product, Site, SOLine
+    from .stock import next_number
+
+    site = db.get(Site, site_id)
+    if site is None:
+        raise StockError(f"site {site_id} not found")
+    if not lines:
+        raise StockError("the cart is empty")
+    if customer_id is None:
+        name = f"Walk-in ({site.name})"
+        walk_in = db.scalar(select(Partner).where(Partner.name == name, Partner.kind == "customer"))
+        if walk_in is None:
+            walk_in = Partner(name=name, kind="customer")
+            db.add(walk_in)
+            db.flush()
+        customer_id = walk_in.id
+    so = SalesOrder(number=next_number(db, SalesOrder, "SO"), customer_id=customer_id, site_id=site_id)
+    merged: dict[int, dict] = {}
+    for line in lines:  # scanning the same item twice adds up
+        product = db.get(Product, line["product_id"])
+        if product is None:
+            raise StockError(f"product {line['product_id']} not found")
+        entry = merged.setdefault(product.id, {"product": product, "qty": 0.0, "price": line.get("unit_price")})
+        entry["qty"] += float(line["qty"])
+    for e in merged.values():
+        price = e["product"].sale_price if e["price"] is None else e["price"]
+        so.lines.append(SOLine(product_id=e["product"].id, product=e["product"], qty=e["qty"], unit_price=price))
+    db.add(so)
+    db.flush()
+    reserve_so(db, so)
+    ship_so(db, so, user)
+    return so

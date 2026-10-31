@@ -44,6 +44,15 @@ How to work:
   with the key numbers, then any proposals. Use SKUs and site names, not internal ids."""
 
 
+PLANNER_TASK = """Run the daily replenishment and stock-health review for the whole network. Work through it:
+1. Read the dashboard, the replenishment suggestions and the insights (network and each store).
+2. Decide what to buy (group lines per supplier), what to move from the warehouse to stores, and which
+   short-dated lots to rebalance to the store that sells them fastest. Check incoming stock so nothing is ordered twice.
+3. Where a reorder rule is clearly out of line with the forecast reorder point, propose a corrected rule.
+4. Create the proposals with the propose_* tools (every proposal needs a one-sentence rationale with the numbers).
+Finish with a short brief: the 3 most important facts, what you proposed and why, and any risk you could not act on."""
+
+
 class MessagesClient(Protocol):  # the slice of anthropic.Anthropic().beta.messages we use
     def create(self, **kwargs: Any) -> Any: ...
 

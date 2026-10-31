@@ -99,3 +99,59 @@ def test_refusal_and_missing_key(client, world, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
     assert client.post("/api/ai/chat", headers=mgr, json={"message": "x"}).status_code == 503
     assert client.get("/api/ai/status", headers=mgr).json()["enabled"] is False
+
+
+def test_intake_reads_delivery_note_and_matches_po(client, world):
+    mgr = client.headers_for(Role.manager)
+    po = client.post("/api/purchase-orders", headers=mgr, json={
+        "supplier_id": world["sup"].id, "site_id": world["wh"].id,
+        "lines": [{"product_id": world["mug"].id, "qty_ordered": 10, "unit_cost": 2},
+                  {"product_id": world["milk"].id, "qty_ordered": 20, "unit_cost": 1}],
+    }).json()
+    client.post(f"/api/purchase-orders/{po['id']}/confirm", headers=mgr)
+    extracted = {"supplier_name": "Supplier Ltd", "document_number": "DN-77", "document_date": "2026-10-30", "notes": "",
+                 "lines": [{"description": "Mug", "sku": "MUG", "quantity": 12, "unit_cost": 2.5, "lot_code": "", "expiry_date": ""},
+                           {"description": "Fresh milk 1L", "sku": "", "quantity": 20, "unit_cost": 1, "lot_code": "B7", "expiry_date": "2026-11-20"}]}
+    fake = FakeClient([("end_turn", [text(json.dumps(extracted))])])
+    _use(client, fake)
+    r = client.post("/api/ai/intake/receipt", headers=client.headers_for(Role.clerk),
+                    files={"file": ("note.png", b"\x89PNG fake", "image/png")}).json()
+    call = fake.calls[0]
+    assert call["output_config"]["format"]["type"] == "json_schema"
+    assert call["messages"][0]["content"][0]["type"] == "image"
+    assert r["po_number"] == po["number"]
+    by_sku = {x["sku"]: x for x in r["receipts"]}
+    assert by_sku["MUG"]["qty"] == 10 and by_sku["MILK"]["lot_code"] == "B7"  # name-matched, capped at open qty
+    assert any("delivered 12" in w for w in r["warnings"]) and any("2.5" in w for w in r["warnings"])
+    # the clerk posts it as-is
+    body = [{"line_id": x["line_id"], "qty": x["qty"], "lot_code": x["lot_code"], "expiry_date": x["expiry_date"]} for x in r["receipts"]]
+    assert client.post(f"/api/purchase-orders/{po['id']}/receive", headers=mgr, json=body).json()["status"] == "received"
+
+
+def test_planner_run_fills_the_queue(client, world):
+    mgr = client.headers_for(Role.manager)
+    fake = FakeClient([
+        ("tool_use", [tool_use("t1", "propose_reorder_rule", {"product_id": world["mug"].id, "site_id": world["wh"].id,
+                                                              "min_qty": 10, "max_qty": 40, "multiple": 1, "source_site_id": 0,
+                                                              "rationale": "no rule yet"})]),
+        ("end_turn", [text("Brief: added a rule for mugs.")]),
+    ])
+    _use(client, fake)
+    r = client.post("/api/ai/planner/run", headers=mgr).json()
+    assert r["proposals"][0]["kind"] == "reorder_rule" and "Brief" in r["text"]
+    assert "daily replenishment" in fake.calls[0]["messages"][0]["content"]
+    assert client.post("/api/ai/planner/run", headers=client.headers_for(Role.clerk)).status_code == 403
+
+
+def test_intake_warns_when_the_note_is_from_another_supplier(client, world):
+    mgr = client.headers_for(Role.manager)
+    po = client.post("/api/purchase-orders", headers=mgr, json={
+        "supplier_id": world["sup"].id, "site_id": world["wh"].id,
+        "lines": [{"product_id": world["mug"].id, "qty_ordered": 5, "unit_cost": 2}]}).json()
+    client.post(f"/api/purchase-orders/{po['id']}/confirm", headers=mgr)
+    extracted = {"supplier_name": "Completely Different Trading", "document_number": "X1", "document_date": "", "notes": "",
+                 "lines": [{"description": "Mug", "sku": "MUG", "quantity": 5, "unit_cost": 2, "lot_code": "", "expiry_date": ""}]}
+    _use(client, FakeClient([("end_turn", [text(json.dumps(extracted))])]))
+    r = client.post("/api/ai/intake/receipt", headers=mgr, data={"po_id": str(po["id"])},
+                    files={"file": ("note.pdf", b"%PDF-1.4 fake", "application/pdf")}).json()
+    assert any("Document is from Completely Different Trading" in w for w in r["warnings"])

@@ -161,5 +161,5 @@ def get_insights(site_id: int | None = None, db: Session = Depends(get_db), _=De
 
 
 @router.get("/dashboard")
-def get_dashboard(db: Session = Depends(get_db), _=Depends(current_user)):
-    return insights.dashboard(db)
+def get_dashboard(site_id: int | None = None, db: Session = Depends(get_db), _=Depends(current_user)):
+    return insights.dashboard(db, site_id=site_id)

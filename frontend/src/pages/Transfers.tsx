@@ -10,7 +10,7 @@ export default function Transfers() {
   const act = (t: Transfer, verb: string) => run(async () => { await api.post(`/transfers/${t.id}/${verb}`); reload(); }, `${t.number}: ${verb === "dispatch" ? "dispatched" : "received"}`);
 
   return (
-    <Page title="Transfers" subtitle="Warehouse → store replenishment through a transit location (lots are kept)"
+    <Page title="Transfers" subtitle="Warehouse to store. Lots travel with the goods."
       actions={<button className="primary" onClick={() => setCreating(true)}>+ New transfer</button>}>
       {!data ? <Loading error={error} /> : data.length === 0 ? <Empty>No transfers.</Empty> : (
         <div className="card flush">
@@ -59,8 +59,8 @@ function NewTransfer({ onClose, onDone }: { onClose: () => void; onDone: () => v
     <Modal title="New transfer" onClose={onClose}>
       <form className="form" onSubmit={submit}>
         <div className="grid2">
-          <label>From<select required value={from} onChange={(e) => setFrom(e.target.value)}><option value="">—</option>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
-          <label>To<select required value={to} onChange={(e) => setTo(e.target.value)}><option value="">—</option>{sites.filter((s) => String(s.id) !== from).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+          <label>From<select required value={from} onChange={(e) => setFrom(e.target.value)}><option value="">Choose…</option>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+          <label>To<select required value={to} onChange={(e) => setTo(e.target.value)}><option value="">Choose…</option>{sites.filter((s) => String(s.id) !== from).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
         </div>
         <LineEditor lines={lines} setLines={setLines} products={products} />
         <button className="primary" disabled={busy}>Create draft</button>

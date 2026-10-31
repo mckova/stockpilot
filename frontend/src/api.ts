@@ -43,6 +43,7 @@ export type Dashboard = {
   reorder_alerts: number; reorder_top: Suggestion[];
   expiring_lots: { lot: string; product_id: number; expiry_date: string; days_left: number; quantity: number }[];
   movement_30d: { date: string; inbound: number; outbound: number }[];
+  sites: { site_id: number; name: string; kind: string; stock_value: number; units: number; reorder_alerts: number }[];
 };
 
 const TOKEN_KEY = "stockpilot.token";
@@ -72,7 +73,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T;
 }
 
+async function upload<T>(path: string, form: FormData): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
+  const res = await fetch(`/api${path}`, { method: "POST", headers, body: form });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(res.status, typeof data?.detail === "string" ? data.detail : res.statusText);
+  return data as T;
+}
+
 export const api = {
+  upload,
   get: <T,>(p: string) => request<T>("GET", p),
   post: <T,>(p: string, b?: unknown) => request<T>("POST", p, b ?? {}),
   put: <T,>(p: string, b: unknown) => request<T>("PUT", p, b),

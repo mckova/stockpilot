@@ -1,56 +1,82 @@
 # Stockpilot
 
-**AI-native warehouse & inventory management for a multi-site business**: one
-central warehouse, several stores, suppliers with lead times, and a Claude agent
-that reads the live stock position and proposes the next actions.
+[![CI](https://github.com/mckova/stockpilot/actions/workflows/ci.yml/badge.svg)](https://github.com/mckova/stockpilot/actions/workflows/ci.yml)
 
-![Copilot](docs/screenshots/17-copilot-answer.png)
+**Stock for one warehouse and the stores it feeds, with an AI planner that asks
+before it acts.** A central warehouse, two stores, suppliers with lead times,
+and Claude reading the live stock position every morning: it proposes orders
+and transfers, a manager signs, and only then does anything move.
 
-## Features
+![Today](docs/screenshots/05-today.png)
+
+## What it does
 
 | Area | What it does |
 |---|---|
-| **Copilot (AI)** | Chat with a Claude Opus 5.5 agent (Hebrew or English). 11 strict tools over live data; proposes POs, transfers and reorder rules into an **approval queue**; a manager approves and a draft document is created. |
-| **Stock engine** | Double-entry moves between locations (virtual supplier/customer/adjustment/transit), append-only ledger, quants per product × location × lot, reservations. |
-| **Lots & expiry** | Lot-tracked products are picked **FEFO**; others FIFO. Expiry alerts on the dashboard. |
-| **Valuation** | Moving average cost (AVCO), re-weighted on every receipt. Stock value per quant. |
-| **Purchasing** | PO draft → confirmed → partial → received, with put-away location, lot and expiry at receipt. |
-| **Sales** | Orders reserve stock all-or-nothing (with a visible pick list), then ship. Cancel releases reservations. |
-| **Transfers** | Warehouse → store through a transit location; lots survive the trip. |
-| **Cycle counts** | Freeze expected quantities, count, review variance in units and value, manager posts adjustments. |
-| **Replenishment** | Min/max rules per site with routes (buy from supplier or transfer from warehouse); drafts count as incoming so nothing is ordered twice. |
-| **Insights** | Demand forecast (SES × weekday seasonality), safety stock (95 %), reorder point, days of cover, stockout date, ABC, dead stock. |
-| **Roles** | JWT auth with admin / manager / clerk; clerks receive, pick, count; managers buy, approve counts and AI proposals. |
-| **Barcode** | Scan a barcode or SKU in the product search and press Enter. |
+| **Planner (AI)** | A Claude Opus 5.5 agent with 11 strict tools over live data. Runs the morning review on demand or answers questions in Hebrew or English. Its only write tools are *propose* tools: orders, transfers and rule changes land on a sign-off queue, and a manager's approval creates the draft document. |
+| **Delivery-note intake (AI)** | Upload a photo or PDF of a supplier's delivery note while receiving a PO. Claude reads it with vision into a strict JSON schema; the receipt form is pre-filled with quantities, lots and expiry dates, and differences are flagged: over-delivery, price changes, missing lines, a note from a different supplier than the PO. Nothing posts until a person does. |
+| **Today** | A worklist, not a dashboard: proposals waiting for sign-off, items below their minimum (with a one-click draft), lots expiring in the next two weeks, orders to ship. Each row carries its own action. |
+| **Point of sale** | Store till with barcode scan; every sale is a ledger move from the store shelf, oldest expiry first. |
+| **Stock engine** | Double-entry moves between locations (virtual supplier, customer, adjustment and transit), append-only ledger, quants per product × location × lot, reservations. |
+| **Lots & expiry** | Lot-tracked products are picked **FEFO**, others FIFO. |
+| **Valuation** | Moving average cost, re-weighted on every receipt. |
+| **Purchasing, sales, transfers, counts** | Full state machines: PO draft → confirmed → partial → received; orders reserve all-or-nothing and then ship; transfers go through transit with lots intact; counts freeze expected quantities and post variances. |
+| **Replenishment** | Min/max rules per site with a route (buy from a supplier or move from the warehouse). Drafts count as incoming so nothing is ordered twice. |
+| **Demand** | Forecast (SES with a weekday index), safety stock at 95 %, reorder point, days of cover, stockout date, ABC and dead stock. |
+| **Roles** | JWT auth: admin, manager, clerk. Clerks receive, sell, pick and count; managers buy and sign off. |
+
+## The front page
+
+The sign-in page is the product itself, pinned while you scroll through one
+morning from 07:40 to 11:22: stock at opening, the planner's review, two
+proposals, your signature, the van arriving in Tel Aviv, a delivery note read
+into a receipt, the ledger posting. Every number is computed in the browser from
+a small data set; scrolling only chooses the step.
+
+| | |
+|---|---|
+| ![Opening](docs/screenshots/01-front-opening.png) | ![Posted](docs/screenshots/03-front-posted.png) |
+
+## Design
+
+The interface takes its voice from the warehouse floor: shelf labels, delivery
+notes, dispatch slips. SKUs, lots and quantities are set in mono; status is a
+square sticker; a thin *bin gauge* shows stock against its reorder rule wherever
+a rule exists. Amber has exactly one meaning: a person needs to act. Details and
+rules are in [DESIGN.md](DESIGN.md).
 
 ## Architecture
 
 ```
-frontend/  React 18 + TypeScript + Vite + Recharts      (12 screens)
+frontend/  React 18 + TypeScript + Vite + Recharts      (14 screens)
 backend/   FastAPI + SQLAlchemy 2 (SQLite by default, any SQL URL via DATABASE_URL)
   app/services/stock.py      stock engine: apply_move, quants, FEFO/FIFO, availability
   app/services/documents.py  PO / SO / transfer / count state machines
   app/services/insights.py   forecast, ABC, replenishment, dashboard
-  app/ai/agent.py            Claude agent loop (manual tool loop, append-only transcript)
+  app/ai/agent.py            Claude agent loop and the morning planner
   app/ai/tools.py            11 tools: 8 read, 3 propose; approval → draft documents
-  tests/                     18 tests: engine invariants, API flows, AI loop with a fake client
+  app/ai/intake.py           delivery note → structured output → matched to the PO
+  tests/                     22 tests: engine invariants, API flows, AI with a fake client
 ```
 
-### The AI copilot, in detail
+### The AI layer, in detail
 
-* Model `claude-opus-5-5`, adaptive thinking, `effort` configurable
-  (`STOCKPILOT_AI_EFFORT`, default `medium`), prompt caching, and
-  `fallbacks: "default"` so a declined turn is retried on Anthropic's recommended
-  fallback model instead of failing.
+* Model `claude-opus-5-5` with adaptive thinking and a configurable effort
+  (`STOCKPILOT_AI_EFFORT`, default `medium`), prompt caching, and server-side
+  fallbacks so a declined turn is retried on the recommended fallback model
+  instead of failing.
 * Tools are `strict: true` JSON schemas. Read tools call the same services as the
-  REST API, so the agent sees exactly the numbers on screen.
-* **Human in the loop by construction**: the agent has no tool that changes stock.
-  `propose_*` tools store an `AIProposal`; `POST /api/ai/proposals/{id}/approve`
+  REST API, so the planner sees exactly the numbers on screen.
+* **Human in the loop by construction.** The agent has no tool that changes
+  stock. `propose_*` tools store a proposal; `POST /api/ai/proposals/{id}/approve`
   (manager only) turns it into a draft PO, draft transfer or reorder rule.
-* The conversation transcript is stored exactly as the API returned it and
-  replayed append-only, so thinking blocks stay valid across turns.
-* Without `ANTHROPIC_API_KEY` the rest of the system works normally and the
-  Copilot page explains how to enable it.
+* Intake uses structured outputs (`json_schema`) with image or PDF input, then
+  deterministic matching against the open PO; every mismatch becomes a warning
+  on the form instead of a silent correction.
+* Transcripts are stored exactly as the API returned them and replayed
+  append-only, so thinking blocks stay valid across turns.
+* Without `ANTHROPIC_API_KEY` everything else works, and the AI screens say how
+  to enable it.
 
 ## Run it
 
@@ -59,7 +85,7 @@ backend/   FastAPI + SQLAlchemy 2 (SQLite by default, any SQL URL via DATABASE_U
 cd backend
 pip install -r requirements.txt
 python -m app.seed                      # demo data: 3 sites, 18 products, 90 days of history
-export ANTHROPIC_API_KEY=sk-ant-...     # optional, enables the Copilot
+export ANTHROPIC_API_KEY=sk-ant-...     # optional, enables the planner and intake
 uvicorn app.main:app --reload --port 8000
 
 # frontend (dev, proxies /api to :8000)
@@ -73,17 +99,21 @@ Or with Docker: `docker compose up --build`, then open http://localhost:8000.
 Demo logins: `manager@stockpilot.dev / manager123`, `clerk@stockpilot.dev / clerk123`,
 `admin@stockpilot.dev / admin123`.
 
-Tests: `cd backend && pip install -r requirements-dev.txt && pytest`.
+Tests: `cd backend && pip install -r requirements-dev.txt && pytest`. CI runs the
+backend tests and a type-checked frontend build on every push.
 
 ## Screenshots
 
 | | |
 |---|---|
-| ![Dashboard](docs/screenshots/01-dashboard.png) | ![Product](docs/screenshots/03-product.png) |
-| ![Insights](docs/screenshots/10-insights.png) | ![Replenishment](docs/screenshots/09-replenishment.png) |
-| ![Sales pick list](docs/screenshots/12-sales-picks.png) | ![Receiving](docs/screenshots/13-receive.png) |
-| ![Cycle count](docs/screenshots/08-counts.png) | ![Copilot approval](docs/screenshots/18-copilot-approved.png) |
+| ![Planner](docs/screenshots/06-planner.png) | ![Signed](docs/screenshots/07-planner-approved.png) |
+| ![Receive with the delivery note](docs/screenshots/08-receive-ai.png) | ![Point of sale](docs/screenshots/09-pos.png) |
+| ![Replenishment](docs/screenshots/10-replenishment.png) | ![Product](docs/screenshots/11-product.png) |
+| ![Demand](docs/screenshots/12-demand.png) | ![Cycle count](docs/screenshots/13-counts.png) |
 
-The Copilot screenshots were captured with a scripted stand-in for the model
-(no API key in the build environment): the tool calls and their data are real,
-the wording of the answer is scripted.
+On a phone: ![Front page](docs/screenshots/04-front-mobile.png)
+
+The planner and intake screenshots were captured with a scripted stand-in for
+the model (no API key in the build environment): the tool calls, the data and the
+PO matching are real; the wording of the answers and the extracted note are
+scripted.

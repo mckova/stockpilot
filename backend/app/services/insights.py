@@ -24,6 +24,7 @@ from ..models import (
     Quant,
     ReorderRule,
     SalesOrder,
+    Site,
     SOStatus,
     StockMove,
     utcnow,
@@ -186,28 +187,33 @@ def replenishment(db: Session) -> list[dict]:
     return out
 
 
-def dashboard(db: Session) -> dict:
+def dashboard(db: Session, site_id: int | None = None) -> dict:
+    """KPIs for the whole network, or for one site (warehouse or store)."""
     today = _today()
-    value = db.scalar(
-        select(func.coalesce(func.sum(Quant.quantity * Product.avg_cost), 0.0)).join(Product, Quant.product_id == Product.id)
-    )
-    units = db.scalar(select(func.coalesce(func.sum(Quant.quantity), 0.0)))
-    skus = db.scalar(select(func.count(func.distinct(Quant.product_id))))
-    expiring = db.execute(
-        select(Lot, func.sum(Quant.quantity))
-        .join(Quant, Quant.lot_id == Lot.id)
-        .where(Lot.expiry_date.is_not(None), Lot.expiry_date <= today + timedelta(days=30))
-        .group_by(Lot.id)
-        .order_by(Lot.expiry_date)
-    ).all()
-    repl = [r for r in replenishment(db) if r["suggested_qty"] > 0]
-    open_pos = db.scalar(
-        select(func.count()).select_from(PurchaseOrder).where(PurchaseOrder.status.in_([POStatus.confirmed, POStatus.partial]))
-    )
-    open_sos = db.scalar(select(func.count()).select_from(SalesOrder).where(SalesOrder.status == SOStatus.reserved))
-
-    # 30-day movement series: inbound (from supplier) vs outbound (to customer), by value
+    loc_site = dict(db.execute(select(Location.id, Location.site_id)).all())
     kinds = dict(db.execute(select(Location.id, Location.kind)).all())
+
+    def mine(location_id: int) -> bool:
+        return kinds.get(location_id) == LocationKind.internal and (site_id is None or loc_site.get(location_id) == site_id)
+
+    quants = [q for q in db.scalars(select(Quant)) if mine(q.location_id)]
+    value = sum(q.quantity * q.product.avg_cost for q in quants)
+    units = sum(q.quantity for q in quants)
+    skus = len({q.product_id for q in quants})
+
+    lots: dict[int, float] = defaultdict(float)
+    for q in quants:
+        if q.lot and q.lot.expiry_date and q.lot.expiry_date <= today + timedelta(days=30):
+            lots[q.lot_id] += q.quantity
+    expiring = sorted(((db.get(Lot, lid), qty) for lid, qty in lots.items()), key=lambda x: x[0].expiry_date)
+
+    repl = [r for r in replenishment(db) if r["suggested_qty"] > 0 and (site_id is None or r["site_id"] == site_id)]
+    po_q = select(func.count()).select_from(PurchaseOrder).where(PurchaseOrder.status.in_([POStatus.confirmed, POStatus.partial]))
+    so_q = select(func.count()).select_from(SalesOrder).where(SalesOrder.status == SOStatus.reserved)
+    if site_id:
+        po_q, so_q = po_q.where(PurchaseOrder.site_id == site_id), so_q.where(SalesOrder.site_id == site_id)
+
+    # 30-day movement value: into the scope (receipts, incoming transfers) vs out of it (sales, outgoing transfers)
     start = today - timedelta(days=29)
     series = {(start + timedelta(days=i)).isoformat(): {"in": 0.0, "out": 0.0} for i in range(30)}
     for ts, qty, cost, src, dst in db.execute(
@@ -217,25 +223,41 @@ def dashboard(db: Session) -> dict:
         key = ts.date().isoformat()
         if key not in series:
             continue
-        if kinds.get(src) == LocationKind.supplier:
+        external = (LocationKind.supplier,) if site_id is None else (LocationKind.supplier, LocationKind.transit)
+        if mine(dst) and kinds.get(src) in external:
             series[key]["in"] += qty * cost
-        elif kinds.get(dst) == LocationKind.customer:
+        elif mine(src) and kinds.get(dst) in ((LocationKind.customer,) if site_id is None else (LocationKind.customer, LocationKind.transit)):
             series[key]["out"] += qty * cost
+
+    by_site = defaultdict(lambda: {"stock_value": 0.0, "units": 0.0})
+    for q in db.scalars(select(Quant)):
+        sid = loc_site.get(q.location_id)
+        if sid and kinds.get(q.location_id) == LocationKind.internal:
+            by_site[sid]["stock_value"] += q.quantity * q.product.avg_cost
+            by_site[sid]["units"] += q.quantity
+    all_repl = [r for r in replenishment(db) if r["suggested_qty"] > 0]
+    sites = [
+        {
+            "site_id": site.id, "name": site.name, "kind": site.kind.value,
+            "stock_value": round(by_site[site.id]["stock_value"], 2), "units": round(by_site[site.id]["units"], 2),
+            "reorder_alerts": sum(1 for r in all_repl if r["site_id"] == site.id),
+        }
+        for site in db.scalars(select(Site).order_by(Site.id))
+    ]
     return {
-        "stock_value": round(value or 0, 2),
-        "units_on_hand": round(units or 0, 2),
-        "skus_in_stock": skus or 0,
-        "open_purchase_orders": open_pos or 0,
-        "orders_to_ship": open_sos or 0,
+        "site_id": site_id,
+        "stock_value": round(value, 2),
+        "units_on_hand": round(units, 2),
+        "skus_in_stock": skus,
+        "open_purchase_orders": db.scalar(po_q) or 0,
+        "orders_to_ship": db.scalar(so_q) or 0,
         "reorder_alerts": len(repl),
         "reorder_top": repl[:6],
+        "sites": sites,
         "expiring_lots": [
             {
-                "lot": lot.code,
-                "product_id": lot.product_id,
-                "expiry_date": lot.expiry_date.isoformat(),
-                "days_left": (lot.expiry_date - today).days,
-                "quantity": round(q, 2),
+                "lot": lot.code, "product_id": lot.product_id, "expiry_date": lot.expiry_date.isoformat(),
+                "days_left": (lot.expiry_date - today).days, "quantity": round(q, 2),
             }
             for lot, q in expiring
         ],

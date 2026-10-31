@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useState } from "react";
 import { api, Count, Loc } from "../api";
 import { Card, dt, Empty, Loading, money2, num, Page, Status, useAction, useLoad, useSession } from "../components/ui";
@@ -19,9 +20,9 @@ export default function Counts() {
   }, "Count started: expected quantities frozen");
 
   return (
-    <Page title="Cycle counts" subtitle="Freeze expected stock, count, review variances, then post adjustments">
+    <Page title="Cycle counts" subtitle="Count a location, review the variance, post it.">
       <div className="toolbar">
-        <select value={loc} onChange={(e) => setLoc(e.target.value)}>
+        <select aria-label="Location to count" value={loc} onChange={(e) => setLoc(e.target.value)}>
           <option value="">Choose a location to count…</option>
           {locs.filter((l) => l.kind === "internal").map((l) => <option key={l.id} value={l.id}>{l.full_code} · {l.name}</option>)}
         </select>
@@ -67,10 +68,10 @@ function CountSheet({ count, canApply, onChange }: { count: Count; canApply: boo
         <tbody>
           {count.lines.map((l) => (
             <tr key={l.id}>
-              <td>{l.sku}<div className="muted small">{l.product}</div></td>
+              <td>{l.product}<span className="muted mono small block">{l.sku}</span></td>
               <td className="mono">{l.lot ?? ""}</td>
               <td className="r">{num(l.expected)}</td>
-              <td className="r">{editable ? <input className="w80" type="number" min="0" step="any" value={vals[l.id]} onChange={(e) => setVals({ ...vals, [l.id]: e.target.value })} /> : l.counted ?? "—"}</td>
+              <td className="r">{editable ? <input aria-label={`Counted ${l.sku}`} className="w80" type="number" min="0" step="any" value={vals[l.id]} onChange={(e) => setVals({ ...vals, [l.id]: e.target.value })} /> : l.counted ?? ""}</td>
               <td className={`r ${l.variance ? (l.variance > 0 ? "pos" : "neg") : ""}`}>{l.variance == null ? "" : (l.variance > 0 ? "+" : "") + num(l.variance)}</td>
               <td className="r">{l.variance_value ? money2(l.variance_value) : ""}</td>
             </tr>
@@ -78,7 +79,10 @@ function CountSheet({ count, canApply, onChange }: { count: Count; canApply: boo
         </tbody>
       </table>
       <div className="row between pad-t">
-        <span className="muted">Net variance (saved lines): <b className={totalVar < 0 ? "neg" : ""}>{money2(totalVar)}</b></span>
+        <span className="row">
+          <span className="muted">Net variance (saved lines): <b className={totalVar < 0 ? "neg" : ""}>{money2(totalVar)}</b></span>
+          {count.lines.some((l) => l.variance) && <Link className="btn small" to={`/copilot?q=${encodeURIComponent(`Explain the variances on cycle count ${count.number} at ${count.location}: check the ledger for each product with a variance and suggest the likely cause.`)}`}>Ask the planner why</Link>}
+        </span>
         {editable && <div className="row">
           <button disabled={busy} onClick={save}>Save counts</button>
           <button className="primary" disabled={busy || !canApply} title={canApply ? "" : "Managers approve adjustments"} onClick={apply}>Apply adjustments</button>

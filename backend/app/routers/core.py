@@ -125,7 +125,7 @@ def get_product(pid: int, db: Session = Depends(get_db), _=Depends(current_user)
     p = _get(db, Product, pid)
     quants = db.scalars(select(Quant).where(Quant.product_id == pid)).all()
     moves = db.scalars(
-        select(StockMove).where(StockMove.product_id == pid).order_by(StockMove.id.desc()).limit(50)
+        select(StockMove).where(StockMove.product_id == pid).order_by(StockMove.created_at.desc(), StockMove.id.desc()).limit(50)
     ).all()
     lots = db.scalars(select(Lot).where(Lot.product_id == pid).order_by(Lot.expiry_date)).all()
     return {
@@ -193,7 +193,7 @@ def list_moves(
     db: Session = Depends(get_db),
     _=Depends(current_user),
 ):
-    stmt = select(StockMove).order_by(StockMove.id.desc()).limit(limit)
+    stmt = select(StockMove).order_by(StockMove.created_at.desc(), StockMove.id.desc()).limit(limit)
     if product_id:
         stmt = stmt.where(StockMove.product_id == product_id)
     if reference:

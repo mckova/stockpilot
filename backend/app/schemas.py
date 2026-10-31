@@ -75,6 +75,18 @@ class SOIn(BaseModel):
     lines: list[SOLineIn]
 
 
+class POSLineIn(BaseModel):
+    product_id: int
+    qty: float = Field(gt=0)
+    unit_price: float | None = Field(None, ge=0)
+
+
+class POSCheckoutIn(BaseModel):
+    site_id: int
+    customer_id: int | None = None
+    lines: list[POSLineIn]
+
+
 class TransferLineIn(BaseModel):
     product_id: int
     qty: float = Field(gt=0)

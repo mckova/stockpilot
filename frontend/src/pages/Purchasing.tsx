@@ -15,7 +15,7 @@ export default function Purchasing() {
   const act = (po: PO, verb: string) => run(async () => { await api.post(`/purchase-orders/${po.id}/${verb}`); reload(); }, `${po.number}: ${verb}ed`);
 
   return (
-    <Page title="Purchasing" subtitle="Purchase orders and goods receipt"
+    <Page title="Purchasing" subtitle="Orders to suppliers and goods in."
       actions={can("manager") && <button className="primary" onClick={() => setCreating(true)}>+ New PO</button>}>
       <div className="toolbar">
         {["", "draft", "confirmed", "partial", "received", "cancelled"].map((s) => (
@@ -89,8 +89,8 @@ function NewPO({ onClose, onDone }: { onClose: () => void; onDone: () => void })
     <Modal title="New purchase order" onClose={onClose}>
       <form className="form" onSubmit={submit}>
         <div className="grid2">
-          <label>Supplier<select required value={supplier} onChange={(e) => setSupplier(e.target.value)}><option value="">—</option>{sups.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.lead_time_days}d)</option>)}</select></label>
-          <label>Deliver to<select required value={site} onChange={(e) => setSite(e.target.value)}><option value="">—</option>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+          <label>Supplier<select required value={supplier} onChange={(e) => setSupplier(e.target.value)}><option value="">Choose…</option>{sups.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.lead_time_days}d)</option>)}</select></label>
+          <label>Deliver to<select required value={site} onChange={(e) => setSite(e.target.value)}><option value="">Choose…</option>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
         </div>
         <LineEditor lines={lines} setLines={setLines} products={products.filter((p) => !supplier || p.preferred_supplier_id === +supplier)} priceLabel="Unit cost" />
         <button className="primary" disabled={busy}>Create draft</button>
@@ -106,6 +106,31 @@ function Receive({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone:
   );
   const { run, busy } = useAction();
   const upd = (i: number, k: string, v: string) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+  const [intake, setIntake] = useState<Intake | null>(null);
+  const [reading, setReading] = useState(false);
+  const { toast } = useSession();
+  const readNote = async (file: File | undefined) => {
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file);
+    form.append("po_id", String(po.id));
+    setReading(true);
+    try {
+      const r = await api.upload<Intake>("/ai/intake/receipt", form);
+      setIntake(r);
+      setRows((cur) => cur.map((row) => {
+        const hit = r.receipts.find((x) => x.line_id === row.line_id);
+        return hit ? { ...row, qty: String(hit.qty), lot_code: hit.lot_code ?? row.lot_code, expiry_date: hit.expiry_date ?? row.expiry_date }
+          : { ...row, qty: "0" };
+      }));
+      if (r.receipts.length) toast(`Filled ${r.receipts.length} line${r.receipts.length === 1 ? "" : "s"} from the document: check and post`);
+      else toast("Nothing on the document matches this order: see the notes above", "err");
+    } catch (e) {
+      toast((e as Error).message, "err");
+    } finally {
+      setReading(false);
+    }
+  };
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const body = rows.filter((r) => +r.qty > 0).map((r) => ({
@@ -117,6 +142,20 @@ function Receive({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone:
   return (
     <Modal title={`Receive ${po.number} · ${po.supplier}`} onClose={onClose}>
       <form className="form" onSubmit={submit}>
+        <div className="ai-intake">
+          <div className="row between">
+            <span className="small"><b>Fill from the delivery note.</b> <span className="muted">Upload a photo or PDF. Claude reads quantities, lots and expiry dates into the rows below; nothing posts until you do.</span></span>
+            <label className="btn upload">
+              {reading ? "Reading…" : "Upload"}
+              <input type="file" accept="image/*,application/pdf" hidden disabled={reading} onChange={(e) => { readNote(e.target.files?.[0]); e.target.value = ""; }} />
+            </label>
+          </div>
+          {intake && <>
+            <div className="small muted">Document {intake.document_number || "without number"} from {intake.supplier || "unknown supplier"}{intake.po_number && intake.po_number !== po.number ? ` (looks like ${intake.po_number})` : ""}</div>
+            {intake.warnings.length > 0 && <ul className="warn-list">{intake.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>}
+            {intake.unmatched.length > 0 && <div className="small">Not on this PO: {intake.unmatched.map((u) => `${u.description} × ${u.quantity}`).join(", ")}</div>}
+          </>}
+        </div>
         <table>
           <thead><tr><th>Product</th><th className="r">Open</th><th>Qty</th><th>Put away to</th><th>Lot</th><th>Expiry</th></tr></thead>
           <tbody>
@@ -126,15 +165,15 @@ function Receive({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone:
                 <tr key={l.id}>
                   <td>{l.sku}<div className="muted small">{l.product}</div></td>
                   <td className="r">{num(openQty)}</td>
-                  <td><input className="w80" type="number" min="0" max={openQty} step="any" value={rows[i].qty} onChange={(e) => upd(i, "qty", e.target.value)} disabled={openQty <= 0} /></td>
+                  <td><input className="w80" type="number" min="0" max={openQty} step="any" aria-label={`Quantity ${l.sku}`} value={rows[i].qty} onChange={(e) => upd(i, "qty", e.target.value)} disabled={openQty <= 0} /></td>
                   <td>
-                    <select value={rows[i].location_id} onChange={(e) => upd(i, "location_id", e.target.value)}>
+                    <select aria-label={`Put-away location ${l.sku}`} value={rows[i].location_id} onChange={(e) => upd(i, "location_id", e.target.value)}>
                       <option value="">Site default</option>
                       {(locs ?? []).filter((x) => x.kind === "internal").map((x) => <option key={x.id} value={x.id}>{x.full_code}</option>)}
                     </select>
                   </td>
-                  <td>{l.tracking === "lot" ? <input className="w120" required={+rows[i].qty > 0} placeholder="Lot code" value={rows[i].lot_code} onChange={(e) => upd(i, "lot_code", e.target.value)} /> : <span className="muted">—</span>}</td>
-                  <td>{l.tracking === "lot" ? <input type="date" value={rows[i].expiry_date} onChange={(e) => upd(i, "expiry_date", e.target.value)} /> : null}</td>
+                  <td>{l.tracking === "lot" ? <input className="w120" required={+rows[i].qty > 0} placeholder="Lot code" aria-label={`Lot ${l.sku}`} value={rows[i].lot_code} onChange={(e) => upd(i, "lot_code", e.target.value)} /> : <span className="faint">none</span>}</td>
+                  <td>{l.tracking === "lot" ? <input type="date" aria-label={`Expiry ${l.sku}`} value={rows[i].expiry_date} onChange={(e) => upd(i, "expiry_date", e.target.value)} /> : null}</td>
                 </tr>
               );
             })}
@@ -145,3 +184,10 @@ function Receive({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone:
     </Modal>
   );
 }
+
+type Intake = {
+  po_id: number | null; po_number: string | null; supplier: string; document_number: string;
+  receipts: { line_id: number; sku: string; qty: number; lot_code: string | null; expiry_date: string | null; confidence: number }[];
+  unmatched: { description: string; quantity: number; matched_sku: string | null }[];
+  warnings: string[];
+};
