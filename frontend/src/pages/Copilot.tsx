@@ -28,7 +28,7 @@ export default function Copilot() {
   const [thinking, setThinking] = useState(false);
   const { toast, can, user } = useSession();
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, thinking]);
+  useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [msgs, thinking]);
 
   const send = async (text: string) => {
     if (!text.trim() || thinking) return;

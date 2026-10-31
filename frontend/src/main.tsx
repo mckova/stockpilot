@@ -3,10 +3,9 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, auth, User } from "./api";
 import { SessionCtx } from "./components/ui";
+import { ChevronDown } from "lucide-react";
 import { Mark } from "./components/Mark";
-import "@fontsource-variable/archivo/standard.css";
-import "@fontsource/ibm-plex-mono/400.css";
-import "@fontsource/ibm-plex-mono/500.css";
+import "@fontsource-variable/manrope/index.css";
 import "./styles.css";
 import Dashboard from "./pages/Dashboard";
 import Products from "./pages/Products";
@@ -25,32 +24,45 @@ import POS from "./pages/POS";
 
 const RANK = { clerk: 1, manager: 2, admin: 3 } as const;
 
-const NAV: { group: string; items: [string, string][] }[] = [
-  { group: "Today", items: [["/", "Today"], ["/copilot", "Planner"], ["/pos", "Point of sale"]] },
-  { group: "Move stock", items: [["/purchasing", "Purchasing"], ["/sales", "Sales orders"], ["/transfers", "Transfers"], ["/counts", "Cycle counts"]] },
-  { group: "Plan", items: [["/replenishment", "Replenishment"], ["/insights", "Demand"]] },
-  { group: "Records", items: [["/products", "Products"], ["/stock", "Stock on hand"], ["/ledger", "Ledger"]] },
+const PRIMARY: [string, string][] = [
+  ["/", "Home"], ["/copilot", "Planner"], ["/products", "Products"], ["/stock", "Stock"],
+  ["/purchasing", "Purchasing"], ["/sales", "Sales"], ["/transfers", "Transfers"], ["/counts", "Counts"],
 ];
+const MORE: [string, string][] = [["/pos", "Point of sale"], ["/replenishment", "Replenishment"], ["/insights", "Demand"], ["/ledger", "Ledger"]];
 
 function Nav() {
   const loc = useLocation();
   const [pending, setPending] = useState(0);
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     api.get<unknown[]>("/ai/proposals?status=pending").then((r) => setPending(r.length)).catch(() => setPending(0));
+    setOpen(false);
   }, [loc.pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+  const inMore = MORE.some(([to]) => loc.pathname.startsWith(to));
   return (
-    <nav>
-      {NAV.map(({ group, items }) => (
-        <div key={group} role="group" aria-label={group}>
-          <div className="nav-group">{group}</div>
-          {items.map(([to, label]) => (
-            <NavLink key={to} to={to} end={to === "/"}>
-              {label}
-              {to === "/copilot" && pending > 0 && <span className="count" aria-label={`${pending} proposals waiting`}>{pending}</span>}
-            </NavLink>
-          ))}
-        </div>
+    <nav className="pills glass" aria-label="Main">
+      {PRIMARY.map(([to, label]) => (
+        <NavLink key={to} to={to} end={to === "/"}>
+          {label}
+          {to === "/copilot" && pending > 0 && <span className="count" aria-label={`${pending} proposals waiting`}>{pending}</span>}
+        </NavLink>
       ))}
+      <span className="menu-wrap">
+        <button className={`more ${inMore ? "active" : ""}`} aria-expanded={open} aria-haspopup="true" onClick={() => setOpen(!open)} style={inMore ? { color: "var(--pine)", background: "var(--pine-wash)" } : undefined}>
+          More <ChevronDown size={14} strokeWidth={2} />
+        </button>
+        {open && (
+          <div className="menu glass">
+            {MORE.map(([to, label]) => <NavLink key={to} to={to}>{label}</NavLink>)}
+          </div>
+        )}
+      </span>
     </nav>
   );
 }
@@ -79,17 +91,14 @@ function App() {
     <SessionCtx.Provider value={{ user, can, toast }}>
       <BrowserRouter>
         <div className="shell">
-          <aside className="side" aria-label="Main navigation">
+          <header className="topbar">
             <div className="brand"><Mark /> Stockpilot</div>
             <Nav />
-            <div className="me">
-              <div>
-                <b>{user.name}</b>
-                <div className="faint small" style={{ textTransform: "capitalize" }}>{user.role}</div>
-              </div>
+            <div className="userbox">
+              <span><b>{user.name}</b></span>
               <button className="ghost small" onClick={() => { auth.set(null); setUser(null); }}>Sign out</button>
             </div>
-          </aside>
+          </header>
           <main>
             <Routes>
               <Route path="/" element={<Dashboard />} />

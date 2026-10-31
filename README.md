@@ -7,7 +7,7 @@ before it acts.** A central warehouse, two stores, suppliers with lead times,
 and Claude reading the live stock position every morning: it proposes orders
 and transfers, a manager signs, and only then does anything move.
 
-![Today](docs/screenshots/05-today.png)
+![Home](docs/screenshots/02-home.png)
 
 ## What it does
 
@@ -15,7 +15,7 @@ and transfers, a manager signs, and only then does anything move.
 |---|---|
 | **Planner (AI)** | A Claude Opus 5.5 agent with 11 strict tools over live data. Runs the morning review on demand or answers questions in Hebrew or English. Its only write tools are *propose* tools: orders, transfers and rule changes land on a sign-off queue, and a manager's approval creates the draft document. |
 | **Delivery-note intake (AI)** | Upload a photo or PDF of a supplier's delivery note while receiving a PO. Claude reads it with vision into a strict JSON schema; the receipt form is pre-filled with quantities, lots and expiry dates, and differences are flagged: over-delivery, price changes, missing lines, a note from a different supplier than the PO. Nothing posts until a person does. |
-| **Today** | A worklist, not a dashboard: proposals waiting for sign-off, items below their minimum (with a one-click draft), lots expiring in the next two weeks, orders to ship. Each row carries its own action. |
+| **Home** | A worklist, not a dashboard: proposals waiting for sign-off, items below their minimum (with a one-click draft), lots expiring in the next two weeks, orders to ship. Each row carries its own action. |
 | **Point of sale** | Store till with barcode scan; every sale is a ledger move from the store shelf, oldest expiry first. |
 | **Stock engine** | Double-entry moves between locations (virtual supplier, customer, adjustment and transit), append-only ledger, quants per product × location × lot, reservations. |
 | **Lots & expiry** | Lot-tracked products are picked **FEFO**, others FIFO. |
@@ -25,25 +25,14 @@ and transfers, a manager signs, and only then does anything move.
 | **Demand** | Forecast (SES with a weekday index), safety stock at 95 %, reorder point, days of cover, stockout date, ABC and dead stock. |
 | **Roles** | JWT auth: admin, manager, clerk. Clerks receive, sell, pick and count; managers buy and sign off. |
 
-## The front page
-
-The sign-in page is the product itself, pinned while you scroll through one
-morning from 07:40 to 11:22: stock at opening, the planner's review, two
-proposals, your signature, the van arriving in Tel Aviv, a delivery note read
-into a receipt, the ledger posting. Every number is computed in the browser from
-a small data set; scrolling only chooses the step.
-
-| | |
-|---|---|
-| ![Opening](docs/screenshots/01-front-opening.png) | ![Posted](docs/screenshots/03-front-posted.png) |
-
 ## Design
 
-The interface takes its voice from the warehouse floor: shelf labels, delivery
-notes, dispatch slips. SKUs, lots and quantities are set in mono; status is a
-square sticker; a thin *bin gauge* shows stock against its reorder rule wherever
-a rule exists. Amber has exactly one meaning: a person needs to act. Details and
-rules are in [DESIGN.md](DESIGN.md).
+Frosted panels on a soft sage and sand field, one pine green for actions, plain
+tables for the work, and a pill nav. Status is a word with a dot; amber and red
+appear only as data (below minimum, expiring, waiting for sign-off). Manrope
+throughout. Details and rules are in [DESIGN.md](DESIGN.md).
+
+![Sign in](docs/screenshots/01-signin.png)
 
 ## Architecture
 
@@ -106,12 +95,12 @@ backend tests and a type-checked frontend build on every push.
 
 | | |
 |---|---|
-| ![Planner](docs/screenshots/06-planner.png) | ![Signed](docs/screenshots/07-planner-approved.png) |
-| ![Receive with the delivery note](docs/screenshots/08-receive-ai.png) | ![Point of sale](docs/screenshots/09-pos.png) |
-| ![Replenishment](docs/screenshots/10-replenishment.png) | ![Product](docs/screenshots/11-product.png) |
-| ![Demand](docs/screenshots/12-demand.png) | ![Cycle count](docs/screenshots/13-counts.png) |
+| ![Planner](docs/screenshots/03-planner.png) | ![Signed](docs/screenshots/04-planner-approved.png) |
+| ![Receive with the delivery note](docs/screenshots/05-receive-ai.png) | ![Point of sale](docs/screenshots/06-pos.png) |
+| ![Replenishment](docs/screenshots/07-replenishment.png) | ![Product](docs/screenshots/08-product.png) |
+| ![Demand](docs/screenshots/09-demand.png) | ![Cycle count](docs/screenshots/10-counts.png) |
 
-On a phone: ![Front page](docs/screenshots/04-front-mobile.png)
+On a phone: ![Home](docs/screenshots/11-home-mobile.png)
 
 The planner and intake screenshots were captured with a scripted stand-in for
 the model (no API key in the build environment): the tool calls, the data and the

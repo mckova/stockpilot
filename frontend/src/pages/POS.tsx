@@ -70,7 +70,7 @@ export default function POS() {
               {products.map((p) => {
                 const left = (avail.get(p.id) ?? 0) - inCart(p.id);
                 return (
-                  <button key={p.id} className="tile" disabled={left <= 0} onClick={() => add(p)}>
+                  <button key={p.id} className="pos-tile" disabled={left <= 0} onClick={() => add(p)}>
                     <b>{p.name}</b>
                     <span className="mono faint small">{p.sku}</span>
                     <span className="foot"><span>{money2(p.sale_price)}</span><span className={left < 5 ? "neg" : "faint"}>{num(left)} on shelf</span></span>

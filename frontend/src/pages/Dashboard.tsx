@@ -1,13 +1,12 @@
+import { ChevronRight, Clock, Download, Truck, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, Dashboard as D, Product } from "../api";
-import { Gauge, KindIcon } from "../components/Gauge";
-import { Card, day, Loading, money, num, Page, useAction, useLoad, useSession } from "../components/ui";
+import { Loading, money, num, day, useAction, useLoad, useSession } from "../components/ui";
 
-type Proposal = { id: number; summary: string; rationale: string };
+type Proposal = { id: number; kind: string; summary: string; rationale: string; lines: { sku: string; product: string; qty: number }[] };
 
-/** The overview answers one question: what needs a person today. Totals are a footnote. */
+/** Home answers one question: what needs a person today. Totals are secondary. */
 export default function Dashboard() {
   const [site, setSite] = useState<number | null>(null);
   const { data, error, reload } = useLoad(
@@ -19,143 +18,166 @@ export default function Dashboard() {
     [site],
   );
   const nav = useNavigate();
-  const { can } = useSession();
+  const { user, can } = useSession();
   const { run, busy } = useAction();
-  if (!data) return <Page title="Today"><Loading error={error} /></Page>;
+  if (!data) return <div className="page"><Loading error={error} /></div>;
   const [d, products, proposals] = data;
   const pname = (id: number) => products.find((p) => p.id === id)?.name ?? `#${id}`;
   const scope = d.sites.find((s) => s.site_id === site)?.name;
+  const first = user.name.split(" ")[0];
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const urgent = d.expiring_lots.filter((l) => l.days_left <= 14);
+  const alerts = d.reorder_alerts;
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+  const draft = (ruleIds: number[], label: string) => run(async () => {
+    await api.post("/replenishment/generate", { rule_ids: ruleIds });
+    reload();
+  }, `Draft created for ${label}`);
+  const approve = (p: Proposal) => run(async () => {
+    await api.post(`/ai/proposals/${p.id}/approve`, {});
+    reload();
+  }, "Approved: a draft was created");
+
+  const last14 = d.movement_30d.slice(-14);
+  const prev14 = d.movement_30d.slice(-28, -14);
+  const sum = (xs: typeof last14) => xs.reduce((s, m) => s + m.outbound, 0);
+  const sales = sum(last14);
+  const delta = prev14.length === 14 && sum(prev14) > 0 ? Math.round((sales / sum(prev14) - 1) * 100) : null;
+  const maxOut = Math.max(...last14.map((m) => m.outbound), 1);
+
   const brief = scope
     ? `What needs attention at ${scope} today: what is short, what is expiring, what should move or be ordered?`
     : "What needs my attention today?";
-  const draft = (ruleId: number, label: string) => run(async () => {
-    await api.post("/replenishment/generate", { rule_ids: [ruleId] });
-    reload();
-  }, `Draft created for ${label}`);
-  const urgent = d.expiring_lots.filter((l) => l.days_left <= 14);
-  const later = d.expiring_lots.filter((l) => l.days_left > 14);
-  // weekly totals answer "more out than in?" better than a noisy daily line
-  const n = d.movement_30d.length;
-  const weeks = Object.values(d.movement_30d.reduce<Record<number, { week: string; inbound: number; outbound: number; days: number }>>((acc, m, i) => {
-    const w = Math.floor((n - 1 - i) / 7); // count back from today so the last bar is a full week
-    acc[w] ??= { week: m.date, inbound: 0, outbound: 0, days: 0 };
-    acc[w].inbound += m.inbound;
-    acc[w].outbound += m.outbound;
-    acc[w].days += 1;
-    return acc;
-  }, {})).filter((w) => w.days === 7).reverse(); // a partial week would read as a slow one
-  const count = d.reorder_top.length + urgent.length + proposals.length + (d.orders_to_ship ? 1 : 0);
+  const top = d.reorder_top.slice(0, 4);
+  const ask = proposals[0];
+
+  const headline = proposals.length > 0
+    ? <>{greeting}, {first}. <b>{plural(proposals.length, "suggestion")}</b> from the planner {proposals.length === 1 ? "is" : "are"} waiting for you. <span>{alerts > 0 ? `${plural(alerts, "product")} below the reorder point.` : "Nothing is below its reorder point."}</span></>
+    : alerts > 0
+      ? <>{greeting}, {first}. <b>{plural(alerts, "product")}</b> {alerts === 1 ? "is" : "are"} below the reorder point. <span>{urgent.length > 0 ? `${plural(urgent.length, "lot")} expire within two weeks.` : "No lot expires within two weeks."}</span></>
+      : <>{greeting}, {first}. <b>Stock is in good shape.</b> <span>Nothing needs you right now.</span></>;
 
   return (
-    <Page title="Today" subtitle={scope ?? "All sites"}
-      actions={<>
-        <button onClick={() => nav(`/copilot?q=${encodeURIComponent(brief)}`)}>Ask the planner</button>
-        {can("manager") && <button className={d.reorder_alerts ? "signal" : ""} onClick={() => nav("/copilot?planner=1")}>Run the morning review</button>}
-      </>}>
-      <div className="site-tabs" role="tablist" aria-label="Site">
-        <button role="tab" className="site-tab" aria-selected={site === null} onClick={() => setSite(null)}>
-          <b>All sites</b>
-          <span className="mono">{money(d.sites.reduce((s, x) => s + x.stock_value, 0))}</span>
-        </button>
-        {d.sites.map((s) => (
-          <button key={s.site_id} role="tab" className="site-tab" aria-selected={site === s.site_id} onClick={() => setSite(s.site_id)}>
-            <b>{s.name}</b>
-            <span className="mono">{money(s.stock_value)}{s.reorder_alerts > 0 && <span className="alerts"> · {s.reorder_alerts} low</span>}</span>
-          </button>
-        ))}
+    <div className="page">
+      <div className="hello">
+        <h1>{headline}</h1>
+        <div className="row" style={{ flexWrap: "nowrap" }}>
+          <div className="seg glass" role="tablist" aria-label="Site">
+            <button role="tab" aria-selected={site === null} onClick={() => setSite(null)}>All sites</button>
+            {d.sites.map((s) => <button key={s.site_id} role="tab" aria-selected={site === s.site_id} onClick={() => setSite(s.site_id)}>{s.name.replace(/ (Store|Warehouse)$/, "")}</button>)}
+          </div>
+          {can("manager") && <button className="primary" onClick={() => nav("/copilot?planner=1")}>Run the morning review</button>}
+        </div>
       </div>
 
-      <div className="footnote" aria-label="Totals">
-        <span><b>{money(d.stock_value)}</b> at average cost</span>
-        <span><b>{num(d.units_on_hand)}</b> units in <b>{d.skus_in_stock}</b> SKUs</span>
-        <span><Link to="/purchasing"><b>{d.open_purchase_orders}</b> purchase orders open</Link></span>
-        <span><Link to="/sales"><b>{d.orders_to_ship}</b> {d.orders_to_ship === 1 ? "order" : "orders"} to ship</Link></span>
-      </div>
-
-      <div className="split">
-        <section className="worklist" aria-labelledby="needs">
-          <header>
-            <h2 id="needs">Needs a person</h2>
-            <span className="faint small">{count} {count === 1 ? "item" : "items"}</span>
-          </header>
-          {count === 0 && <p className="work-empty muted">Nothing is below its reorder point, nothing expires in the next two weeks, and no proposal is waiting.</p>}
-          {proposals.map((p) => (
-            <div key={`p${p.id}`} className="work">
-              <span className="kind"><KindIcon kind="proposal" />Sign-off</span>
-              <span className="what"><b>{p.summary}</b><span className="faint">{p.rationale}</span></span>
-              <span />
-              <Link className="btn small act" to="/copilot">Review</Link>
-            </div>
-          ))}
-          {d.reorder_top.map((r) => (
-            <div key={`r${r.rule_id}`} className="work">
-              <span className="kind"><KindIcon kind="low" />Below min</span>
-              <span className="what">
-                <Link to={`/products/${r.product_id}`}><b>{r.name}</b></Link>
-                <span className="faint">{r.site} · {num(r.projected)} projected, reorder at {num(r.min_qty)} · {r.route === "buy" ? `buy ${num(r.suggested_qty)} from ${r.supplier}` : `move ${num(r.suggested_qty)} from ${r.source_site}`}</span>
-              </span>
-              <Gauge qty={r.projected} min={r.min_qty} max={r.max_qty} />
-              {can("manager")
-                ? <button className="small act" disabled={busy} onClick={() => draft(r.rule_id, r.name)}>{r.route === "buy" ? "Draft order" : "Draft transfer"}</button>
-                : <span className="faint small act">Manager</span>}
-            </div>
-          ))}
-          {urgent.map((l) => (
-            <div key={`e${l.lot}`} className="work">
-              <span className="kind"><KindIcon kind="expiry" />Expires {l.days_left}d</span>
-              <span className="what">
-                <Link to={`/products/${l.product_id}`}><b>{pname(l.product_id)}</b></Link>
-                <span className="faint">lot <span className="mono">{l.lot}</span> · {num(l.quantity)} units · best before {day(l.expiry_date)}</span>
-              </span>
-              <span />
-              <Link className="btn small act" to={`/copilot?q=${encodeURIComponent(`Lot ${l.lot} of ${pname(l.product_id)} expires in ${l.days_left} days with ${l.quantity} units. Where will it sell fastest, and should we move it?`)}`}>Plan it</Link>
-            </div>
-          ))}
-          {d.orders_to_ship > 0 && (
-            <div className="work">
-              <span className="kind"><KindIcon kind="ship" />To ship</span>
-              <span className="what"><b>{d.orders_to_ship} sales {d.orders_to_ship === 1 ? "order is" : "orders are"} reserved</b><span className="faint">Stock is held; pick lists are ready.</span></span>
-              <span />
-              <Link className="btn small act" to="/sales">Open</Link>
-            </div>
+      <div className="bento">
+        <section className="tile glass ask wide" aria-label="Needs your approval">
+          {ask ? (
+            <>
+              <span className="cap">Planner suggestion{proposals.length > 1 ? `, 1 of ${proposals.length}` : ""}</span>
+              <h2>{ask.summary}</h2>
+              <p>{ask.rationale}</p>
+              <div className="items">
+                {ask.lines.slice(0, 4).map((l) => (
+                  <div key={l.sku} className="it"><div className="n">{l.product}</div><div className="s">{l.sku}</div><div className="send">{num(l.qty)}</div></div>
+                ))}
+              </div>
+              <div className="acts">
+                {can("manager") && <button className="primary" disabled={busy} onClick={() => approve(ask)}>Approve</button>}
+                <Link className="btn" to="/copilot">Review in the planner</Link>
+              </div>
+            </>
+          ) : top.length > 0 ? (
+            <>
+              <span className="cap">Below the reorder point</span>
+              <h2>{plural(top.length, "item")} to restock{scope ? ` at ${scope}` : ""}</h2>
+              <p>These are under their minimum once incoming orders are counted. Each draft goes to a manager before anything moves.</p>
+              <div className="items">
+                {top.map((r) => (
+                  <div key={r.rule_id} className="it">
+                    <div className="n">{r.name}</div>
+                    <div className="s"><em>{num(r.projected)} left</em>, reorder at {num(r.min_qty)}</div>
+                    <div className="send">{num(r.suggested_qty)}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="acts">
+                {can("manager") && <button className="primary" disabled={busy} onClick={() => draft(top.map((r) => r.rule_id), "these items")}>Create drafts</button>}
+                <Link className="btn" to="/replenishment">Open replenishment</Link>
+              </div>
+            </>
+          ) : (
+            <>
+              <span className="cap">Planner</span>
+              <h2>Nothing is waiting for you</h2>
+              <p>No suggestion is open and nothing is below its reorder point. Ask the planner if you want a second look.</p>
+              <div className="acts" style={{ marginTop: 24 }}>
+                <button onClick={() => nav(`/copilot?q=${encodeURIComponent(brief)}`)}>Ask the planner</button>
+              </div>
+            </>
           )}
         </section>
 
-        <div>
-          <Card title="Is more leaving than arriving?" extra={<span className="faint small">value at cost, by week</span>}>
-            <div style={{ height: 220 }}>
-              <ResponsiveContainer>
-                <BarChart data={weeks} margin={{ top: 8, right: 4, left: -8, bottom: 0 }} barGap={2} barCategoryGap="28%">
-                  <CartesianGrid vertical={false} stroke="var(--line-soft)" />
-                  <XAxis dataKey="week" tickFormatter={(v) => `w/c ${day(v)}`} fontSize={11} stroke="var(--ink-faint)" tickLine={false} axisLine={{ stroke: "var(--line)" }} fontFamily="IBM Plex Mono" />
-                  <YAxis fontSize={11} stroke="var(--ink-faint)" tickLine={false} axisLine={false} tickFormatter={(v) => `₪${Math.round(v / 1000)}k`} fontFamily="IBM Plex Mono" width={44} />
-                  <Tooltip formatter={(v: number) => money(v)} labelFormatter={(v) => `Week from ${day(v)}`} cursor={{ fill: "rgb(23 25 27 / 0.04)" }} contentStyle={{ borderRadius: 3, border: "1px solid var(--line)", fontSize: 12 }} />
-                  <Legend iconType="square" wrapperStyle={{ fontSize: 12 }} formatter={(v) => <span style={{ color: "var(--ink-soft)" }}>{v}</span>} />
-                  <Bar dataKey="inbound" name="Received" fill="#17191b" radius={[1, 1, 0, 0]} />
-                  <Bar dataKey="outbound" name="Shipped" fill="#f0b323" radius={[1, 1, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-          <Card title="Expiring later this month" extra={<span className="faint small">sold first</span>}>
-            {later.length === 0 ? <p className="muted small">Nothing else expires in the next 30 days.</p> : (
-              <table>
-                <thead><tr><th>Lot</th><th>Item</th><th className="r">Units</th><th className="r">Days</th></tr></thead>
-                <tbody>
-                  {later.map((l) => (
-                    <tr key={l.lot}>
-                      <td className="mono">{l.lot}</td>
-                      <td><Link to={`/products/${l.product_id}`}>{pname(l.product_id)}</Link></td>
-                      <td className="r">{num(l.quantity)}</td>
-                      <td className={`r ${l.days_left <= 7 ? "neg" : ""}`}>{l.days_left}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <section className="tile glass" aria-label="Sales">
+          <h2>Sales</h2><span className="cap">Last 14 days, shipped at cost</span>
+          <Link className="more" to="/sales">Orders <ChevronRight size={14} strokeWidth={2} /></Link>
+          <div className="big">{money(sales)}{delta !== null && <small>{delta >= 0 ? "+" : ""}{delta}% on the 14 days before</small>}</div>
+          <div className="bars" role="img" aria-label={`Daily shipments, ${money(sales)} in total`}>
+            {last14.map((m, i) => (
+              <i key={m.date} className={i === last14.length - 1 ? "n" : ""} style={{ height: `${Math.max(6, (m.outbound / maxOut) * 100)}%` }} title={`${day(m.date)}: ${money(m.outbound)}`} />
+            ))}
+          </div>
+          <div className="ax"><span>{day(last14[0]?.date ?? new Date().toISOString())}</span><span>Today</span></div>
+        </section>
+
+        <section className="tile glass" aria-label="Stock">
+          <h2>Stock</h2><span className="cap">{scope ?? "All sites"}, at average cost</span>
+          <Link className="more" to="/stock">Records <ChevronRight size={14} strokeWidth={2} /></Link>
+          <div className="big">{money(scope ? d.sites.find((s) => s.site_id === site)!.stock_value : d.stock_value)}</div>
+          <div className="meter" aria-hidden="true">
+            <i style={{ flex: Math.max(d.skus_in_stock - alerts - urgent.length, 1) }} />
+            {alerts > 0 && <i className="l" style={{ flex: alerts }} />}
+            {urgent.length > 0 && <i className="e" style={{ flex: urgent.length }} />}
+          </div>
+          <div className="kv">
+            <span><i style={{ background: "var(--pine)" }} />Units on hand</span><b>{num(scope ? d.sites.find((s) => s.site_id === site)!.units : d.units_on_hand)}</b>
+            <span><i style={{ background: "#c68a2c" }} />Below reorder point</span><b>{plural(alerts, "product")}</b>
+            <span><i style={{ background: "var(--terracotta)" }} />Expiring in 14 days</span><b>{plural(urgent.length, "lot")}</b>
+            <span><i style={{ background: "var(--ink-faint)" }} />Open purchase orders</span><b>{d.open_purchase_orders}</b>
+          </div>
+        </section>
+
+        <section className="tile glass right-wide" aria-label="To do today">
+          <h2>To do today</h2>
+          <div className="todo-list">
+            {d.open_purchase_orders > 0 && (
+              <div className="todo-row"><Download size={20} strokeWidth={1.6} />
+                <div><div className="ttl">Receive {plural(d.open_purchase_orders, "purchase order")}</div><div className="m">Scan the delivery note to fill the receipt</div></div>
+                <Link className="go" to="/purchasing">Open purchasing <ChevronRight size={14} strokeWidth={2} /></Link></div>
             )}
-          </Card>
-        </div>
+            {d.orders_to_ship > 0 && (
+              <div className="todo-row"><Truck size={20} strokeWidth={1.6} />
+                <div><div className="ttl">Ship {plural(d.orders_to_ship, "sales order")}</div><div className="m">Stock is reserved and the pick lists are ready</div></div>
+                <Link className="go" to="/sales">Pick lists <ChevronRight size={14} strokeWidth={2} /></Link></div>
+            )}
+            {urgent.map((l) => (
+              <div key={l.lot} className="todo-row"><Clock size={20} strokeWidth={1.6} color="var(--terracotta)" />
+                <div><div className="ttl">{pname(l.product_id)}, lot {l.lot}, expires in {l.days_left} {l.days_left === 1 ? "day" : "days"}</div><div className="m">{num(l.quantity)} units · best before {day(l.expiry_date)}</div></div>
+                <Link className="go" to={`/copilot?q=${encodeURIComponent(`Lot ${l.lot} of ${pname(l.product_id)} expires in ${l.days_left} days with ${l.quantity} units. Where will it sell fastest, and should we move it?`)}`}>Ask the planner <ChevronRight size={14} strokeWidth={2} /></Link></div>
+            ))}
+            {ask && d.reorder_top.slice(0, 3).map((r) => (
+              <div key={r.rule_id} className="todo-row"><TriangleAlert size={20} strokeWidth={1.6} color="var(--ochre)" />
+                <div><div className="ttl">{r.name} is low at {r.site}</div><div className="m">{num(r.projected)} projected, reorder at {num(r.min_qty)} · {r.route === "buy" ? `buy ${num(r.suggested_qty)} from ${r.supplier}` : `move ${num(r.suggested_qty)} from ${r.source_site}`}</div></div>
+                {can("manager") ? <button className="small" disabled={busy} onClick={() => draft([r.rule_id], r.name)}>{r.route === "buy" ? "Draft order" : "Draft transfer"}</button> : <span />}</div>
+            ))}
+            {d.open_purchase_orders === 0 && d.orders_to_ship === 0 && urgent.length === 0 && !(ask && d.reorder_top.length) && (
+              <p className="todo-empty">Nothing else is open. Counts and demand are under <Link to="/counts">Counts</Link> and <Link to="/insights">Demand</Link>.</p>
+            )}
+          </div>
+        </section>
       </div>
-    </Page>
+    </div>
   );
 }

@@ -72,7 +72,7 @@ export function Page({ title, subtitle, actions, children }: { title: string; su
 }
 
 export function Status({ value }: { value: string }) {
-  return <span className={`badge s-${value}`}>{value.replace("_", " ")}</span>;
+  return <span className={`badge s-${value}`}>{value.replace(/_/g, " ")}</span>;
 }
 
 export function Card({ title, children, extra }: { title?: string; children: ReactNode; extra?: ReactNode }) {

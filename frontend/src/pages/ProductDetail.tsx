@@ -55,11 +55,11 @@ export default function ProductDetail() {
             <ResponsiveContainer>
               <BarChart data={chart} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <CartesianGrid stroke="var(--line-soft)" vertical={false} />
-                <XAxis dataKey="d" fontSize={10} interval={3} stroke="var(--ink-faint)" tickLine={false} fontFamily="IBM Plex Mono" />
-                <YAxis fontSize={10} stroke="var(--ink-faint)" tickLine={false} axisLine={false} fontFamily="IBM Plex Mono" />
-                <Tooltip cursor={{ fill: "rgb(23 25 27 / 0.04)" }} contentStyle={{ borderRadius: 3, border: "1px solid var(--line)", fontSize: 12 }} />
-                <Bar dataKey="actual" fill="#17191b" name="Shipped" />
-                <Bar dataKey="forecast" fill="#b9bdc1" name="Forecast" />
+                <XAxis dataKey="d" fontSize={10} interval={3} stroke="var(--ink-faint)" tickLine={false} />
+                <YAxis fontSize={10} stroke="var(--ink-faint)" tickLine={false} axisLine={false} />
+                <Tooltip cursor={{ fill: "rgb(23 25 27 / 0.04)" }} contentStyle={{ borderRadius: 12, border: "1px solid var(--line)", fontSize: 12 }} />
+                <Bar dataKey="actual" fill="#24625c" name="Shipped" />
+                <Bar dataKey="forecast" fill="#a9c2b4" name="Forecast" />
               </BarChart>
             </ResponsiveContainer>
           </div>
