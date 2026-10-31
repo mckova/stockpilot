@@ -1,0 +1,10 @@
+services:
+  stockpilot:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      STOCKPILOT_SECRET: ${STOCKPILOT_SECRET:-change-me-to-a-long-random-string-000000}
+    volumes: ["stockpilot-data:/data"]
+volumes:
+  stockpilot-data:
